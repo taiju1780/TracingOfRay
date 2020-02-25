@@ -1,6 +1,7 @@
 #include "DxLib.h"
 #include "Geometry.h"
 #include <vector>
+#include <cmath>
 
 //画面サイズ
 int screensizex = 800;
@@ -11,17 +12,21 @@ std::vector<Sphere> sp;
 //床
 Plane plane;
 
+//光
+Vector3 light(1, -2, 2);
+
 //初期化
 void Init(){
 	//ボールの初期化
 	float r = 100;
 	Position3 pos = Position3(-120, 50, 0);
-	Vector3 albedo = { 0.5f,0.8f,0.8f };
+	Vector3 albedo = { 0.5f,0.5f,0.8f };
 	sp.push_back(Sphere(r, pos, albedo));
 
-	pos = Position3(120, 50, 0); 
-	albedo = { 0.8f,0.5f,0.8f };
+	pos = Position3(150, 50, 0); 
+	albedo = { 0.8f,0.5f,0.5f };
 	sp.push_back(Sphere(r, pos, albedo));
+
 
 	//床の初期化
 	plane.normal = Vector3(0, 1, 0);
@@ -81,9 +86,6 @@ bool HitRay(Vector3 eye, int ballnum, Vector3 ray, float &bright, Vector3 &n, Ve
 
 	n.Normalize();
 
-	//光
-	Vector3 light(1, -2, 2);
-
 	light.Normalize();
 
 	//輝き
@@ -106,7 +108,7 @@ bool HitRay(Vector3 eye, int ballnum, Vector3 ray, float &bright, Vector3 &n, Ve
 }
 
 //その他オブジェクトとの当たり判定
-bool HitObjeectRay(Vector3 eye, int ballnum, Vector3 ray, float &bright) {
+bool HitObjeectRay(Vector3 eye, int ballnum, Vector3 ray, float &bright, float &spe) {
 	//中心までのray
 	Vector3 center = sp[ballnum].pos - eye;
 
@@ -134,6 +136,12 @@ bool HitObjeectRay(Vector3 eye, int ballnum, Vector3 ray, float &bright) {
 
 	//輝き
 	bright = Dot(light, n);
+
+	//反射ベクトル
+	auto lightray = ReflectVector(light, n);
+
+	//スペキュラー
+	spe = pow(max(min(Dot(lightray, -ray), 1), 0), 20);
 
 	//クランプ
 	bright = max(min(bright, 1), 0);
@@ -174,9 +182,6 @@ bool HitFloorRay(Vector3 ray, Plane plane, Vector3& point) {
 
 //影描画判定
 bool HitFloorShadow(Vector3 point, int ballnum) {
-
-	//光
-	Vector3 light(1, -2, 2);
 
 	light.Normalize();
 
@@ -276,16 +281,15 @@ void TraceOn() {
 
 			for (int i = 0; i < sp.size(); ++i) {
 
-				if (HitRay(eye, i, ray, bright,normal,hitballpos, specular)) {
+				if (HitRay(eye, i, ray, bright, normal, hitballpos, specular)) {
 
 					////////////////////////////////////////////////////////////////////////
 					//鏡面反射
 					////////////////////////////////////////////////////////////////////////
 
-					auto ref = ReflectVector(ray, normal);
-					auto b = 0.0f;
+					albedo = sp[i].albedo;
 
-					auto ballray = sp[(i + 1) % sp.size()].pos - sp[i].pos;
+					auto ref = ReflectVector(ray, normal);
 
 					//床反射
 					if (HitFloorRay(ref, plane, point)) {
@@ -302,22 +306,27 @@ void TraceOn() {
 							albedo = sp[i].albedo * c;
 						}
 					}
-					else {
-						albedo = sp[i].albedo;
-					}
+
+					auto b = 0.0f;
+					auto s = 0.0f;
+					Vector3 tmp;
+					Vector3 tmp2;
+					auto nom = hitballpos - sp[i].pos;
+					auto ballray = sp[(i + 1) % sp.size()].pos - sp[i].pos;
 
 					//その他オブジェクト反射
-					if (HitObjeectRay(point, (i + 1) % sp.size(), ref, b)) {
+					if (HitRay(hitballpos, (i + 1) % sp.size(), ref, b, tmp, tmp2, s)) {
 
-						if (Dot(ref, ballray) >= 0) {
+						if (Dot(nom, ballray) >= 0) {
 							auto c = sp[(i + 1) % sp.size()].albedo;
 							albedo = sp[i].albedo * c;
-							bright = b;
+							bright = Clamp(b * bright);
+							specular = Clamp(s + specular);
 						}
 					}
-
+					
 					//レイを描画
-					DrawPixelWithFloat(x, y, CaliculateColor(albedo, Clamp(bright), specular, 0));
+					DrawPixelWithFloat(x, y, CaliculateColor(albedo, bright, specular, 0.2f));
 					break;
 				}
 			}
